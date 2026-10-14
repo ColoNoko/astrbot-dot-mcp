@@ -1,0 +1,21 @@
+{
+  "version": "v0.0.16",
+  "platform": "linux-amd64",
+  "sha256": "35183d94445c4c11a9d2f2aba52d23b3581c3580bf3998226a33a904c85f37d0",
+  "size_bytes": 19644576,
+  "source_url": "https://github.com/openai/tunnel-client/releases/download/v0.0.16/tunnel-client-runtime-v0.0.16-linux-amd64.zip",
+  "archive_sha256": "f8f48017e752810c2c6f02065cdc4ca1ad045b91a6d045cbab144b957fdcbdb1",
+  "archive_size_bytes": 7389274,
+  "source_commit": "5f99daabd4aa4a77049e6d81d54a0d8c18335397",
+  "license": "Apache-2.0",
+  "verification": {
+    "official_checksums": true,
+    "embedded_spdx_matches_sidecar": true,
+    "spdx_payload_hashes": true,
+    "safe_archive_paths_and_regular_members": true,
+    "elf_linux_x86_64": true,
+    "sigstore_signature_verified": false,
+    "sigstore_limitation": "Installed GitHub CLI does not support gh attestation; signature bundle preserved for independent verification."
+  },
+  "binary_executed": false
+}

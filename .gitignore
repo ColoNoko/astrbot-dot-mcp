@@ -1,0 +1,48 @@
+# Runtime data and local configuration
+plugin_data/
+data/
+config/
+secrets/
+credentials/
+tunnel/run-*/
+*.sqlite
+*.sqlite3
+*.sqlite*
+*.db
+*.db-*
+*.key
+*.pem
+.env
+.env.*
+!.env.example
+
+# Python and test environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+venv-*/
+.test-*/
+.pytest_cache/
+.mypy_cache/
+.coverage*
+htmlcov/
+node_modules/
+
+# Logs, local QA, and private working files
+*.log
+logs/
+test-results*.txt
+.ui-qa/
+playwright-report/
+test-results/
+.DS_Store
+.idea/
+.vscode/
+*.bak
+*.tmp
+
+# Only the current audited release is kept
+dist/*
+!dist/astrbot_plugin_dot_private_v0.3.2.zip
+!dist/SHA256SUMS.txt

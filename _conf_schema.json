@@ -1,0 +1,136 @@
+{
+  "enabled": {
+    "description": "启用插件",
+    "type": "bool",
+    "default": false,
+    "hint": "检查 QQ 号、群白名单和密钥后再开启。仅影响本插件接收与回复。"
+  },
+  "platform_id": {
+    "description": "平台实例 ID",
+    "type": "string",
+    "default": "",
+    "hint": "platform_id：AstrBot 平台列表中的实例 ID。完整启动且候选唯一时，可自动填入空白值。",
+    "invisible": true
+  },
+  "adapter": {
+    "description": "平台适配器",
+    "type": "string",
+    "default": "",
+    "hint": "adapter：目前只支持 aiocqhttp。已有填写不会被自动覆盖。",
+    "invisible": true
+  },
+  "self_id": {
+    "description": "机器人 QQ",
+    "type": "string",
+    "default": "",
+    "hint": "self_id：填写机器人登录的 QQ 号，不是你自己的 QQ 号。",
+    "invisible": true
+  },
+  "sender_id": {
+    "description": "我的 QQ",
+    "type": "string",
+    "default": "",
+    "hint": "sender_id：你的 QQ 号。私聊和“仅本人 @”模式只接收此账号。"
+  },
+  "mcp_token": {
+    "description": "内部 MCP 认证",
+    "type": "string",
+    "default": "",
+    "secret": true,
+    "hint": "仅用于插件与内置 Tunnel 的本机通信；首次启用时自动建立，旧值继续保留。",
+    "invisible": true
+  },
+  "callback_hosts": {
+    "description": "回调域名",
+    "type": "list",
+    "default": [],
+    "hint": "callback_hosts：实际 dot 回调的 HTTPS 域名；不要带协议、端口或路径。",
+    "invisible": true
+  },
+  "listen_host": {
+    "description": "监听地址",
+    "type": "string",
+    "default": "127.0.0.1",
+    "hint": "listen_host：默认 127.0.0.1（仅本机）。对外转发需另行配置。",
+    "invisible": true
+  },
+  "listen_port": {
+    "description": "监听端口",
+    "type": "int",
+    "default": 8769,
+    "hint": "listen_port：默认 8769；MCP 路径为 /mcp。",
+    "invisible": true
+  },
+  "group_ids": {
+    "description": "群白名单",
+    "type": "list",
+    "default": [],
+    "hint": "group_ids：逐项填写允许的 QQ 群号；留空不处理群聊。"
+  },
+  "group_trigger_mode": {
+    "description": "群回复模式",
+    "type": "string",
+    "default": "owner_at",
+    "options": [
+      "owner_at",
+      "all_messages"
+    ],
+    "hint": "owner_at：仅本人 @。all_messages：群内任何非机器人账号的普通文字，无需 @；引用和媒体不支持。",
+    "labels": [
+      "仅本人 @ 时回复",
+      "群内所有普通文字"
+    ]
+  },
+  "tunnel_id": {
+    "type": "string",
+    "default": "",
+    "description": "Tunnel ID",
+    "hint": "在插件独立页面配置。",
+    "invisible": true
+  },
+  "tunnel_enabled": {
+    "type": "bool",
+    "default": false,
+    "description": "启用 Tunnel",
+    "hint": "在插件独立页面配置。",
+    "invisible": true
+  },
+  "tunnel_runtime_key": {
+    "type": "string",
+    "default": "",
+    "description": "Tunnel 密钥",
+    "hint": "在插件独立页面配置。",
+    "invisible": true,
+    "secret": true
+  },
+  "proxy_enabled": {
+    "type": "bool",
+    "default": false,
+    "description": "启用代理",
+    "hint": "在插件连接管理页面配置；默认关闭。",
+    "invisible": true
+  },
+  "proxy_url": {
+    "type": "string",
+    "default": "",
+    "description": "代理地址",
+    "hint": "在插件连接管理页面配置；默认关闭。",
+    "invisible": true
+  },
+  "proxy_username": {
+    "type": "string",
+    "default": "",
+    "description": "代理用户名",
+    "hint": "在插件连接管理页面配置；默认关闭。",
+    "invisible": true,
+    "secret": true
+  },
+  "proxy_password": {
+    "type": "string",
+    "default": "",
+    "description": "代理密码",
+    "hint": "在插件连接管理页面配置；默认关闭。",
+    "invisible": true,
+    "secret": true
+  }
+}

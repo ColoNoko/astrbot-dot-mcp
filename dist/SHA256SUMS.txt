@@ -1,0 +1,1 @@
+a1176bbe55e55967993b166b8ec384a850a7523039e95ba227b21f4df5e588e2  astrbot_plugin_dot_private_v0.3.2.zip

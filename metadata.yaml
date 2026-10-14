@@ -1,0 +1,6 @@
+name: astrbot_plugin_dot_private
+display_name: dot 私聊与群白名单 MCP
+version: v0.3.2
+author: dot
+desc: 本人私聊与可选白名单群全员文字模式的 MCP Events 原型，默认关闭。
+repo: "https://github.com/ColoNoko/astrbot-dot-mcp"
