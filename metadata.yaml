@@ -1,6 +1,6 @@
 name: astrbot_plugin_dot_private
-display_name: dot 私聊与群白名单 MCP
-version: v0.3.2
+display_name: ChatGPT Dot MCP助手
+version: v0.5.6
 author: dot
-desc: 本人私聊与可选白名单群全员文字模式的 MCP Events 原型，默认关闭。
+desc: 将获准的 QQ 私聊与群消息接入 ChatGPT Dot，支持消息、附件与按群规则。
 repo: "https://github.com/ColoNoko/astrbot-dot-mcp"

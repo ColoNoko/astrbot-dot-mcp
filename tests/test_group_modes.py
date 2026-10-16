@@ -59,14 +59,16 @@ class GroupModeTests(unittest.IsolatedAsyncioTestCase):
         e=Event(); e.sender='201'; e.message_obj.raw_message['user_id']=201
         e.message_obj.raw_message['sender']['user_id']=201
         await self.plugin.on_private_message(e); self.assertFalse(e.stopped)
-    async def test_quote_media_and_other_at_components_remain_unsupported(self):
-        for segment in ({'type':'reply','data':{'id':'quoted'}},
+    async def test_quote_media_and_other_at_components_preserve_body_with_markers(self):
+        for index,segment in enumerate(({'type':'reply','data':{'id':'quoted'}},
                         {'type':'forward','data':{'id':'forwarded'}},
                         {'type':'image','data':{'file':'x'}},
                         {'type':'at','data':{'qq':'all'}},
-                        {'type':'at','data':{'qq':'999'}}):
+                        {'type':'at','data':{'qq':'999'}})):
             e=all_event(); e.message_obj.raw_message['message'].append(segment)
-            await self.plugin.on_group_message(e); self.assertFalse(e.stopped)
+            e.message_obj.message_id=str(index); e.message_obj.raw_message['message_id']=str(index)
+            mid=await self.accept(e)
+            self.assertTrue(self.plugin.host.store.read(mid)['text'].startswith('hello from alt['))
     async def test_literal_at_text_is_normal_text_not_a_routing_instruction(self):
         e=all_event(text='@someone [CQ:reply,id=9] literal'); mid=await self.accept(e)
         self.assertEqual(self.plugin.host.store.read(mid)['text'],'@someone [CQ:reply,id=9] literal')

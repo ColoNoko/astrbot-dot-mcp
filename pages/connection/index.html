@@ -4,14 +4,20 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <title>dot 连接设置</title>
+  <title>ChatGPT Dot MCP助手</title>
   <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="./history.css">
 </head>
 <body>
+  <nav class="plugin-tabs" role="tablist" aria-label="ChatGPT Dot MCP助手">
+    <button type="button" id="connection-tab" role="tab" aria-selected="true" aria-controls="connection-panel" tabindex="0">连接设置</button>
+    <button type="button" id="history-tab" role="tab" aria-selected="false" aria-controls="history-panel" tabindex="-1">消息记录</button>
+  </nav>
+  <section id="connection-panel" role="tabpanel" aria-labelledby="connection-tab">
   <main class="shell">
     <header class="page-header">
-      <div class="brand-line"><img class="brand-logo" src="./assets/logo.png" width="34" height="34" alt=""><span>dot <span class="brand-divider">/</span> AstrBot</span><span class="eyebrow">连接设置</span></div>
-      <div class="heading-row"><div><h1>让连接，各就各位。</h1><p class="subtitle">平台、Tunnel 与出站代理，都在这里管理。</p></div><button type="button" class="button subtle" id="refresh" disabled><span aria-hidden="true">↻</span> 刷新状态</button></div>
+      <div class="brand-line"><img class="brand-logo" src="./assets/logo.png" width="34" height="34" alt=""><span>ChatGPT Dot MCP助手</span><span class="eyebrow">连接设置</span></div>
+      <div class="heading-row"><div><h1>连接设置</h1><p class="subtitle">连接 QQ 与 ChatGPT Dot。<a id="open-help" href="./help.html">使用帮助</a></p></div><button type="button" class="button subtle" id="refresh" disabled><span aria-hidden="true">↻</span> 刷新状态</button></div>
     </header>
 
     <section class="status-panel" aria-labelledby="status-heading">
@@ -21,6 +27,12 @@
         <div class="status-cell"><span class="status-number">02</span><div><p class="status-label">本地 MCP</p><strong id="mcp-status">等待读取</strong><p class="status-detail" id="mcp-detail">端点 /mcp</p></div></div>
         <div class="status-cell"><span class="status-number">03</span><div><p class="status-label">Tunnel</p><strong id="tunnel-status">等待读取</strong><p class="status-detail" id="tunnel-detail">进程状态不代表外网连通</p></div></div>
       </div>
+      <section id="sender-routes-panel" class="sender-routes-panel" aria-labelledby="sender-routes-heading" hidden>
+        <h2 id="sender-routes-heading">发送者路由</h2>
+        <p class="help">请在 AstrBot 原生插件设置的 sender_routes 中编辑发送者 QQ、Tunnel ID 与端口。所有路由共用下方运行密钥；多路由模式不使用全局 Tunnel ID 与端口。“应用并重启”会重启所有路由，此模式暂不支持单独重连 Tunnel。</p>
+        <p id="sender-routes-empty" class="help">已配置发送者路由，尚无运行状态。请应用设置后刷新。</p>
+        <ul id="sender-routes-list" class="sender-routes-list" aria-label="各发送者路由的本地状态"></ul>
+      </section>
       <p id="runtime-issue" class="runtime-issue" hidden></p>
       <div class="status-footer"><span><span class="small-dot" aria-hidden="true"></span> QQ 消息往返 <strong>尚未验证</strong></span><span id="last-updated">等待 AstrBot 连接</span></div>
     </section>
@@ -33,46 +45,93 @@
         <div class="cards-grid">
           <section class="card platform-card" aria-labelledby="platform-heading">
             <div class="card-heading"><div><span class="section-index">01 / PLATFORM</span><h2 id="platform-heading">平台绑定</h2></div><span class="tag">aiocqhttp</span></div>
-            <p class="card-description">选择已经接入 AstrBot 的 QQ 实例。</p>
-            <div class="field"><label for="platform-id">平台实例</label><select id="platform-id" name="platform_id" aria-describedby="platform-help"><option value="">读取平台列表中…</option></select><p class="help" id="platform-help">只列出已识别的 aiocqhttp 实例，不自动替你选择。</p></div>
-            <div class="field"><label for="self-id">机器人 QQ</label><input id="self-id" name="self_id" type="text" inputmode="numeric" pattern="[1-9][0-9]{0,19}" maxlength="20" placeholder="机器人登录的 QQ 号" aria-describedby="self-help"><p class="help" id="self-help">填写机器人账号；你的 QQ 和群规则仍在常规配置中。</p></div>
-            <div class="inset-note"><span class="note-symbol" aria-hidden="true">i</span><p>插件默认关闭。确认连接设置后，再在常规配置中开启；此页保存不会自动开启插件。</p></div><div class="inset-note"><p>不要同时编辑基础配置弹窗和此页面。高级设置保存后，请关闭并重新打开基础配置弹窗；旧弹窗的完整配置快照可能覆盖新高级值。</p></div>
+            
+            <div class="field"><label for="platform-id">平台实例</label><select id="platform-id" name="platform_id" aria-describedby="platform-help"><option value="">读取平台列表中…</option></select><p class="help" id="platform-help">选择实例。</p></div>
+            <div class="field"><label for="self-id">机器人 QQ</label><input id="self-id" name="self_id" type="text" inputmode="numeric" pattern="[1-9][0-9]{0,19}" maxlength="20" placeholder="机器人登录的 QQ 号" aria-describedby="self-help"><p class="help" id="self-help">机器人账号。</p></div>
+            <div class="inset-note"><p>私聊与群规则在常规配置中设置。两页勿同时编辑。</p></div>
           </section>
 
           <section class="card mcp-card" aria-labelledby="mcp-heading">
             <div class="card-heading"><div><span class="section-index">02 / LOCAL SERVICE</span><h2 id="mcp-heading">MCP 服务</h2></div><span class="tag">HTTP</span></div>
-            <p class="card-description">默认仅本机监听，通过 Tunnel 提供外部访问。</p>
+            
             <div class="field-row"><div class="field"><label for="listen-host">监听地址</label><select id="listen-host" name="listen_host"><option value="127.0.0.1">127.0.0.1 · 仅本机</option></select></div><div class="field port-field"><label for="listen-port">端口</label><input id="listen-port" name="listen_port" type="number" min="1024" max="65535" step="1" value="8769" required></div></div>
-            <p class="help host-warning" id="host-warning" hidden>当前旧配置监听所有接口。高级页仅允许本机监听，请选择 127.0.0.1 后再保存。</p>
-            <div class="field"><div class="label-row"><label for="callback-hosts">回调域名</label><span class="optional">每行一个</span></div><textarea id="callback-hosts" name="callback_hosts" rows="3" maxlength="8192" placeholder="填入实际 dot 回调的 HTTPS 域名" aria-describedby="callback-help" spellcheck="false"></textarea><p class="help" id="callback-help">最多 8 个小写精确域名，不带协议、端口、路径或通配符。</p></div>
-            <div class="managed-auth"><div class="label-row"><strong>MCP 鉴权</strong><span class="secret-state set" id="mcp-auth-state">自动管理</span></div><p class="help">内置 Tunnel 自动使用本地鉴权，首次明确启动或应用时由服务器生成并保存。无需填写、生成或复制 MCP 密钥；刷新页面不会生成密钥。</p></div>
+            <p class="help host-warning" id="host-warning" hidden>仅允许127.0.0.1；请修正旧监听地址。</p>
+            <div class="field"><div class="label-row"><label for="callback-hosts">回调域名</label><span class="optional">每行一个</span></div><textarea id="callback-hosts" name="callback_hosts" rows="3" maxlength="8192" placeholder="填入实际 dot 回调的 HTTPS 域名" aria-describedby="callback-help" spellcheck="false"></textarea><p class="help" id="callback-help">精确域名，最多8个。</p></div>
+            <div class="field"><label for="network-dns">统一 DNS</label><select id="network-dns" name="network_dns"><option value="system">系统 DNS</option><option value="google">Google 加密 DNS（经代理）</option><option value="legacy" disabled>旧配置不同，请选择统一模式</option></select><p class="help">回调与附件共用；Google 模式会向 Google 查询下载/回调域名，不含 URL 路径。旧模式冲突时先保留原路径。</p></div>
+            <div class="field"><label class="switch-label" for="attachment-private-http"><span>允许私聊文件 HTTP（有风险）</span><input id="attachment-private-http" name="attachment_private_http" type="checkbox" role="switch" aria-describedby="attachment-private-http-help"><span class="switch-track" aria-hidden="true"></span></label><p class="help" id="attachment-private-http-help">默认关闭；仅私聊文件公网HTTP:80。明文传输，可能被查看或篡改；SHA-256 不能证明原文件真实性。</p></div>
+            <div class="managed-auth"><div class="label-row"><strong>MCP 鉴权</strong><span class="secret-state set" id="mcp-auth-state">自动管理</span></div><p class="help">自动配置。</p></div>
           </section>
 
           <section class="card tunnel-card" aria-labelledby="tunnel-heading">
             <div class="card-heading"><div><span class="section-index">03 / TUNNEL</span><h2 id="tunnel-heading">Tunnel 连接</h2></div><label class="switch-label" for="tunnel-enabled"><span>启用 Tunnel</span><input id="tunnel-enabled" name="tunnel_enabled" type="checkbox" role="switch"><span class="switch-track" aria-hidden="true"></span></label></div>
-            <p class="card-description">使用已有 Tunnel 的 ID 与专用运行密钥。</p>
-            <div class="field-row tunnel-fields"><div class="field"><label for="tunnel-id">Tunnel ID</label><input id="tunnel-id" name="tunnel_id" type="text" maxlength="256" placeholder="已有 Tunnel 的 ID" spellcheck="false" aria-describedby="tunnel-id-help"><p class="help" id="tunnel-id-help">此页只配置连接，不创建 Tunnel。</p></div><div class="field secret-field"><div class="label-row"><label for="tunnel-key">替换运行密钥</label><span class="secret-state" id="tunnel-secret-state">未读取</span></div><input id="tunnel-key" name="tunnel_key" type="password" maxlength="4096" autocomplete="new-password" placeholder="留空保留已有密钥" aria-describedby="tunnel-key-help"><p class="help" id="tunnel-key-help">仅使用此 Tunnel 的运行密钥；不要填写管理凭证。</p></div></div>
+            
+            <div class="field-row tunnel-fields"><div class="field"><label for="tunnel-id">Tunnel ID</label><input id="tunnel-id" name="tunnel_id" type="text" maxlength="256" placeholder="已有 Tunnel 的 ID" spellcheck="false" aria-describedby="tunnel-id-help"><p class="help" id="tunnel-id-help">已有ID。</p></div><div class="field secret-field"><div class="label-row"><label for="tunnel-key">替换运行密钥</label><span class="secret-state" id="tunnel-secret-state">未读取</span></div><input id="tunnel-key" name="tunnel_key" type="password" maxlength="4096" autocomplete="new-password" placeholder="留空保留已有密钥" aria-describedby="tunnel-key-help"><p class="help" id="tunnel-key-help">运行密钥。</p></div></div>
             <div class="tunnel-facts"><div><span>运行程序</span><strong id="binary-status">未读取</strong></div><div><span>本地健康状态</span><strong id="tunnel-health">未读取</strong></div><div><span>远端连接</span><strong>尚未验证</strong></div></div>
+            <p class="help">多发送者路由请在 AstrBot 原生插件设置的 sender_routes 中配置；此页仅显示路由状态。</p>
           </section>
           <section class="card proxy-card" aria-labelledby="proxy-heading">
             <div class="card-heading"><div><span class="section-index">04 / OUTBOUND PROXY</span><h2 id="proxy-heading">出站代理</h2></div><label class="switch-label" for="proxy-enabled"><span>启用代理</span><input id="proxy-enabled" name="proxy_enabled" type="checkbox" role="switch"><span class="switch-track" aria-hidden="true"></span></label></div>
-            <p class="card-description">可选，默认关闭。开启后 Tunnel 与事件回调均经此代理连接，失败时不会绕过代理直连。</p>
-            <div class="field"><label for="proxy-url">HTTP 代理地址</label><input id="proxy-url" name="proxy_url" type="text" maxlength="1024" placeholder="http://192.0.2.10:7890" spellcheck="false" aria-describedby="proxy-url-help proxy-container-help"><p class="help" id="proxy-url-help">必须写出端口；不含账号、密码、路径、查询参数或片段。只支持 HTTP 代理，HTTPS 目标通过 CONNECT 转发；不支持 SOCKS 或 HTTPS 代理地址。</p></div>
+            
+            <div class="field"><label for="proxy-url">HTTP 代理地址</label><input id="proxy-url" name="proxy_url" type="text" maxlength="1024" placeholder="http://192.0.2.10:7890" spellcheck="false" aria-describedby="proxy-url-help"><p class="help" id="proxy-url-help">HTTP地址含端口。</p></div>
             <div class="field-row proxy-auth-fields"><div class="field secret-field"><div class="label-row"><label for="proxy-username">代理用户名</label><span class="secret-state" id="proxy-username-state">未读取</span></div><input id="proxy-username" name="proxy_username" type="password" maxlength="256" autocomplete="new-password" placeholder="选填；留空保留已有用户名" aria-describedby="proxy-auth-help"></div><div class="field secret-field"><div class="label-row"><label for="proxy-password">代理密码</label><span class="secret-state" id="proxy-password-state">未读取</span></div><input id="proxy-password" name="proxy_password" type="password" maxlength="4096" autocomplete="new-password" placeholder="选填；留空保留已有密码" aria-describedby="proxy-auth-help"></div></div>
-            <p class="help" id="proxy-auth-help">认证信息只写入服务器，不会回显。留空保留已存值；更换代理地址后需重新填写已保存的认证信息，或明确清除。</p>
+            <p class="help" id="proxy-auth-help">留空保留；换地址重填。</p>
             <label class="checkbox-label" for="clear-proxy-auth"><input id="clear-proxy-auth" name="clear_proxy_auth" type="checkbox"><span>保存时清除已保存的代理用户名和密码</span></label>
-            <p class="help host-warning" id="proxy-auth-warning" hidden>代理地址已更改。请重新填写认证信息，或勾选清除，避免把旧凭证发送给新代理。</p>
-            <div class="inset-note"><p id="proxy-container-help">NAS / Docker 中的 127.0.0.1 指 AstrBot 容器自身。如果代理运行在宿主机或其他设备，请填写容器可访问的宿主机地址或局域网地址。</p></div>
-            <p class="help">本地 MCP 和健康检查不走代理。回调目标的公网地址与 DNS 安全检查仍在 AstrBot 本地执行，代理不会绕过这些检查。</p>
+            <p class="help host-warning" id="proxy-auth-warning" hidden>地址已改：重填或清除认证，避免向新代理泄露旧凭证。</p>
           </section>
         </div>
       </fieldset>
-      <div class="action-bar"><div><p id="save-state">读取配置后即可编辑</p><p class="help">保存会先停止服务；再点击“应用并重启”使连接配置生效。</p></div><div class="action-buttons"><button type="button" class="button subtle" id="discard" disabled>撤销修改</button><button type="submit" class="button primary" id="save" disabled>保存设置</button></div></div>
+      <div class="action-bar"><div><p id="save-state">读取配置后即可编辑</p><p class="help">保存后应用。</p></div><div class="action-buttons"><button type="button" class="button subtle" id="discard" disabled>撤销修改</button><button type="submit" class="button primary" id="save" disabled>保存设置</button></div></div>
     </form>
 
-    <section class="runtime-controls" aria-label="运行控制"><div><h2>运行控制</h2><p class="help">只操作已保存的设置。停止服务不会更改常规配置里的插件开关。</p></div><div class="action-buttons"><button type="button" class="button subtle" id="stop" disabled>停止服务</button><button type="button" class="button secondary" id="apply" disabled>应用并重启</button></div></section>
+    <section class="runtime-controls" aria-label="运行控制"><div><h2>运行控制</h2><p class="help">重连仅断开并重建 Tunnel，不会重开 ChatGPT 会话。</p></div><div class="action-buttons"><button type="button" class="button subtle" id="reconnect-tunnel" disabled>重连 Tunnel</button><button type="button" class="button subtle" id="stop" disabled>停止服务</button><button type="button" class="button secondary" id="apply" disabled>应用并重启</button></div></section>
+    <section class="card tools-card" aria-labelledby="tools-heading">
+      <div class="card-heading"><div><h2 id="tools-heading">服务端工具</h2><p class="help">工具及参数。</p></div><button type="button" class="button subtle" id="query-tools" disabled>查询服务端工具</button></div>
+      <p id="tools-status" class="help" role="status" aria-live="polite">尚未查询</p>
+      <ul id="tools-list" class="tools-list" aria-label="服务端工具列表" hidden></ul>
+      <p class="help">旧工具？参见 <a href="https://developers.openai.com/plugins/deploy/connect-chatgpt#refresh-metadata" target="_blank" rel="noopener noreferrer">官方刷新步骤 ↗</a>；此处仅查询服务端。</p>
+    </section>
     <footer class="page-footer"><span>dot × AstrBot<span id="version"></span></span><span>密钥与代理认证输入已遮罩；服务器上的配置文件不加密。</span></footer>
   </main>
+  </section>
+  <!-- HISTORY_PANEL_START -->
+  <section id="history-panel" class="history-root" role="tabpanel" aria-labelledby="history-tab" hidden>
+    <div class="h-shell">
+    <header class="h-page-header">
+      <div class="h-brand-line"><span>dot <span class="h-brand-divider">/</span> AstrBot</span><span class="h-eyebrow">消息记录</span></div>
+      <div class="h-heading-row"><div><h1>每段对话，清楚可查。</h1><p class="h-subtitle">按私聊与群聊查看收到的消息、处理状态和回复。</p></div><button type="button" id="history-refresh" class="h-button" disabled>刷新记录</button></div>
+    </header>
+
+    <section class="h-storage-panel" aria-labelledby="history-storage-heading">
+      <div class="h-heading-row"><h2 id="history-storage-heading">本地记录空间</h2><span id="history-storage-usage">等待读取</span></div>
+      <progress id="history-storage-meter" max="100" value="0" aria-label="本地消息记录空间使用比例"></progress>
+      <div class="h-storage-footer"><span id="history-storage-state">容量与写入状态以服务器为准</span><span id="history-last-updated">等待 AstrBot 连接</span></div>
+      <p id="history-storage-warning" class="h-storage-warning" hidden></p>
+    </section>
+
+    <div id="history-notice" class="h-notice h-info" role="status" aria-live="polite">正在连接 AstrBot 插件页面…</div>
+
+    <div class="h-history-layout">
+      <aside class="h-conversation-panel" aria-labelledby="history-conversations-heading">
+        <div class="h-panel-heading"><h2 id="history-conversations-heading">会话</h2><span id="history-conversation-count" class="h-count">0</span></div>
+        <nav id="history-conversations" class="h-conversations" aria-label="选择私聊或群聊"></nav>
+        <p id="history-conversation-empty" class="h-empty-note">正在读取会话…</p>
+        <div class="h-conversation-pagination"><button type="button" id="history-load-conversations" class="h-button" disabled hidden>加载更多会话</button><p id="history-conversation-page-state" class="h-help"></p></div>
+      </aside>
+
+      <section class="h-messages-panel" aria-labelledby="history-messages-heading">
+        <div class="h-panel-heading"><div><h2 id="history-messages-heading">选择一个会话</h2><p id="history-conversation-detail" class="h-help">仅显示已保留记录。</p></div><span class="h-readonly-label">只读</span></div>
+        <p id="history-group-privacy" class="h-privacy-note" hidden>群聊回复会被群内成员看到。处理群消息时，请勿把私聊内容转述到群内。</p>
+        <p id="history-message-empty" class="h-empty-state">读取后选择会话查看记录</p>
+        <ol id="history-messages" class="h-messages" aria-label="消息记录，最新消息在前"></ol>
+        <div class="h-pagination"><button type="button" id="history-load-more" class="h-button" disabled hidden>加载更早的记录</button><span id="history-pagination-state" class="h-help"></span></div>
+      </section>
+    </div>
+
+    <footer class="h-page-footer"><span>dot × AstrBot</span><span>附件仅显示文字信息，不自动加载外部图片或下载文件。</span></footer>
+      </div>
+  </section>
+  <!-- HISTORY_PANEL_END -->
   <script type="module" src="./app.js"></script>
+  <script type="module" src="./tabs.js"></script>
 </body>
 </html>

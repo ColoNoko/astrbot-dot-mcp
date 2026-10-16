@@ -42,7 +42,18 @@ test-results/
 *.bak
 *.tmp
 
-# Only the current audited release is kept
+# Preserve existing v0.3.2 historical archive; not the current release
 dist/*
 !dist/astrbot_plugin_dot_private_v0.3.2.zip
 !dist/SHA256SUMS.txt
+
+# Local diagnostics and delivery staging
+.diagnostics/
+.artifacts/
+.work-*/
+
+# Sender-route runtime and generated diagnostics
+routes/
+attachments-cache/
+media-staging/
+test-results-*/

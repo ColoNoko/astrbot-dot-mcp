@@ -74,6 +74,22 @@ class EndpointTests(unittest.IsolatedAsyncioTestCase):
         async with self.client.request(method, url or self.url, headers=combined, data=body) as response:
             return response.status, await response.json()
 
+    async def test_attachment_api_http_shape_is_returned_over_authenticated_rpc(self):
+        from astrbot_dot_plugin.attachments import AttachmentError
+        async def reader(*_):
+            error = AttachmentError('attachment_https_required')
+            error.note_http_api_source('http://SECRET_USER:SECRET_PASS@files.example.com:8080/SECRET_PATH?key=SECRET_QUERY')
+            raise error
+        self.host.read_attachment = reader
+        status, result = await self.rpc('tools/call', {'name': 'qq_read_attachment', 'arguments': {
+            'message_id': 'msg_' + '1' * 32, 'attachment_id': 'att_' + '2' * 32}})
+        self.assertEqual(status, 200)
+        self.assertTrue(result['result']['isError'])
+        value = json.loads(result['result']['content'][0]['text'])
+        self.assertEqual(value, {'error': 'attachment_https_required', 'source_diagnostic': {
+            'source': 'adapter_api', 'scheme': 'http', 'hostname': 'files.example.com', 'port': 8080}})
+        self.assertNotIn('SECRET_', json.dumps(result))
+
     async def test_discovery_tools_schema_read_reply_and_safe_status(self):
         _, value = await self.rpc("server/discover")
         result = value["result"]
@@ -84,7 +100,7 @@ class EndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(value["result"]["cacheScope"], "private")
         self.assertEqual(value["result"]["ttlMs"], 0)
         self.assertEqual([tool["name"] for tool in value["result"]["tools"]],
-                         ["qq_read_message", "qq_reply", "qq_status"])
+                         ["qq_read_message", "qq_reply", "qq_reply_attachment", "qq_read_attachment", "qq_complete_message", "qq_list_pending", "qq_status"])
         for tool in value["result"]["tools"]:
             self.assertFalse(tool["inputSchema"]["additionalProperties"])
             self.assertNotIn("recipient", tool["inputSchema"]["properties"])
@@ -98,9 +114,63 @@ class EndpointTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.sent), 1)
         _, value = await self.rpc("tools/call", {"name": "qq_status", "arguments": {}})
         rendered = json.dumps(value)
-        for secret in (TOKEN, SECRET, mid, "owner-1", "self-1", "immutable-private-origin", "hello owner"):
+        for secret in (TOKEN, SECRET, "owner-1", "self-1", "immutable-private-origin", "hello owner"):
             self.assertNotIn(secret, rendered)
         self.assertEqual(value["result"]["structuredContent"]["messages"], 1)
+        self.assertEqual(value["result"]["structuredContent"]["message_latency"]["recent"][0]["message_id"], mid)
+
+    async def test_subscription_http_diagnostics_cover_early_metadata_rejection(self):
+        await self.rpc('events/subscribe', {'_meta': {'io.modelcontextprotocol/protocolVersion': 'wrong'}})
+        _, result = await self.rpc('tools/call', {'name':'qq_status','arguments':{}})
+        data=result['result']['structuredContent']
+        self.assertEqual(data['subscribe_http']['recognized_requests'],1)
+        self.assertEqual(data['subscribe_http']['last_stage'],'protocol_metadata')
+        self.assertEqual(data['subscribe_http']['last_error'],'invalid_params_or_metadata')
+        self.assertIsNone(data['events']['last_subscribe'])
+        await self.raw(b'{}', {'Authorization':'Bearer SECRET_SENTINEL'})
+        _, result=await self.rpc('tools/call', {'name':'qq_status','arguments':{}})
+        self.assertEqual(result['result']['structuredContent']['http_rejections']['unauthorized'],1)
+        self.assertNotIn('SECRET_SENTINEL',str(result))
+
+    async def test_older_subscribe_failure_cannot_overwrite_latest_attempt(self):
+        entered, release = asyncio.Event(), asyncio.Event()
+        original = self.endpoint._dispatch
+        async def dispatch(method, params):
+            if method != 'events/subscribe':
+                return await original(method, params)
+            if params.get('older'):
+                entered.set()
+                await release.wait()
+                raise endpoint_module._invalid()
+            return {}
+        self.endpoint._dispatch = dispatch
+        # Identity must still distinguish attempts after the public counter saturates.
+        self.endpoint.subscribe_http['recognized_requests'] = 2147483647
+        older = asyncio.create_task(self.rpc('events/subscribe', {'older': True}))
+        await entered.wait()
+        try:
+            await self.rpc('events/subscribe', {})
+            expected = dict(self.endpoint.subscribe_http)
+        finally:
+            release.set()
+            await older
+        self.assertEqual(self.endpoint.subscribe_http, expected)
+        self.assertIsNone(expected['last_error'])
+        self.assertEqual(expected['last_stage'], 'event_dispatch')
+
+    async def test_media_tool_requires_bound_ids_and_completion_is_explicit(self):
+        mid=self.ingest()
+        _, read=await self.rpc('tools/call',{'name':'qq_read_message','arguments':{'message_id':mid}})
+        self.assertEqual(read['result']['structuredContent']['processing_state'],'pending')
+        for arguments in ({'message_id':mid,'attachment_id':'https://example.com/file'},
+                          {'message_id':mid,'attachment_id':'att_'+'1'*32,'url':'https://example.com/file'}):
+            _, response=await self.rpc('tools/call',{'name':'qq_read_attachment','arguments':arguments})
+            self.assertIn('error',response)
+        _, response=await self.rpc('tools/call',{'name':'qq_complete_message','arguments':{'message_id':mid}})
+        self.assertTrue(response['result']['structuredContent']['completed'])
+        self.assertEqual(self.store.read(mid)['processing_state'],'completed')
+        _, response=await self.rpc('tools/call',{'name':'qq_read_attachment','arguments':{'message_id':mid,'attachment_id':'att_'+'1'*32}})
+        self.assertTrue(response['result']['isError'])
 
     async def test_every_argument_surface_is_strict(self):
         mid = self.ingest()
@@ -296,6 +366,15 @@ class EndpointTests(unittest.IsolatedAsyncioTestCase):
                          "set MCP_CORE_MODULE to an isolated official SDK 2.3.1 core index.mjs")
     async def test_official_sdk2_schema_validation_external_process(self):
         # The SDK stays outside AstrBot. This test imports only in a Node child.
+        mid = self.ingest()
+        async def media(message_id, attachment_id):
+            if attachment_id.endswith('1'):
+                content = {"type":"image","mimeType":"image/png","data":"iVBORw0KGgo="}
+            else:
+                content = {"type":"resource","resource":{"uri":"attachment://"+attachment_id,
+                           "mimeType":"application/octet-stream","blob":"aGVsbG8="}}
+            return {"content":[content],"isError":False}
+        self.host.read_attachment = media
         script = r'''
         import assert from 'node:assert/strict';
         const sdk = await import(process.env.MCP_CORE_MODULE);
@@ -303,7 +382,9 @@ class EndpointTests(unittest.IsolatedAsyncioTestCase):
         for (const [method, schema, args] of [
           ['server/discover', sdk.DiscoverResultSchema, {}],
           ['tools/list', sdk.ListToolsResultSchema, {}],
-          ['tools/call', sdk.CallToolResultSchema, {name:'qq_status', arguments:{}}]
+          ['tools/call', sdk.CallToolResultSchema, {name:'qq_status', arguments:{}}],
+          ['tools/call', sdk.CallToolResultSchema, {name:'qq_read_attachment', arguments:{message_id:process.env.TEST_MESSAGE_ID,attachment_id:'att_'+ '1'.repeat(32)}}],
+          ['tools/call', sdk.CallToolResultSchema, {name:'qq_read_attachment', arguments:{message_id:process.env.TEST_MESSAGE_ID,attachment_id:'att_'+ '2'.repeat(32)}}]
         ]) {
           const response = await fetch(url, {method:'POST',headers:{
             'Content-Type':'application/json', 'Authorization':'Bearer '+process.env.TEST_MCP_TOKEN,
@@ -322,7 +403,7 @@ class EndpointTests(unittest.IsolatedAsyncioTestCase):
         console.log('Official SDK 2.3.1 discovery/list/call schema validation passed');
         '''
         process = await asyncio.create_subprocess_exec("node", "--input-type=module", "-e", script,
-            env={**os.environ, "TEST_MCP_URL": self.url, "TEST_MCP_TOKEN": TOKEN},
+            env={**os.environ, "TEST_MCP_URL": self.url, "TEST_MCP_TOKEN": TOKEN, "TEST_MESSAGE_ID": mid},
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         stdout, stderr = await asyncio.wait_for(process.communicate(), 10)
         self.assertEqual(process.returncode, 0, stderr.decode())

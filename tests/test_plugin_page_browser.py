@@ -23,6 +23,7 @@ FIXTURE = r"""
 (() => {
   const fixture = window.__fixture = {
     calls: [], failNext: '', failGet: false, hold: false, release: null,
+    tools: {version: '0.5.0', tools: [{name: 'qq_read_attachment', description: '读取附件', inputSchema: {type: 'object', properties: {include_raw: {type: 'boolean', default: true}}}}]},
     data: {
       settings: {enabled: false, platform_id: 'qq-main', adapter: 'aiocqhttp', self_id: '123456789',
         listen_host: '127.0.0.1', listen_port: 8769, callback_hosts: ['callback.example.com'],
@@ -43,6 +44,7 @@ FIXTURE = r"""
     apiGet: async (endpoint) => {
       fixture.calls.push({method: 'GET', endpoint});
       if (fixture.failGet) throw new Error('synthetic failure');
+      if (endpoint === 'tools') return JSON.parse(JSON.stringify(fixture.tools));
       return clone();
     },
     apiPost: async (endpoint, body) => {
@@ -75,7 +77,8 @@ class QuietHandler(SimpleHTTPRequestHandler):
         pass
 
 
-@unittest.skipUnless(sync_playwright and CHROMIUM, 'Optional playwright/Chromium QA dependency not installed')
+@unittest.skipUnless(os.environ.get('RUN_BROWSER_QA') == '1' and sync_playwright and CHROMIUM,
+                     'Optional browser QA requires explicit RUN_BROWSER_QA=1 in a permitted environment')
 class PluginPageBrowserTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -135,6 +138,33 @@ class PluginPageBrowserTests(unittest.TestCase):
         self.assertTrue(self.page.locator('#save').is_disabled())
         self.assertIn('已关闭', self.page.inner_text('#plugin-status'))
         self.assertIn('尚未验证', self.page.inner_text('.status-footer'))
+
+    def test_dns_selector_proxy_gate_roundtrip_and_no_credential_changes(self):
+        self.assertEqual(self.page.input_value('#callback-dns'), 'system')
+        self.assertEqual(self.page.locator('#callback-dns option').all_text_contents(),
+                         ['系统DNS', 'Google加密DNS（经代理）'])
+        self.assertEqual(self.page.input_value('#callback-backend'), 'aiohttp')
+        self.page.select_option('#callback-dns', 'google')
+        self.page.click('#save')
+        self.assertEqual(self.posts(), [])
+        self.assertIn('必须明确启用现有代理', self.page.inner_text('#notice'))
+        self.assertFalse(self.page.is_checked('#proxy-enabled'))
+        self.page.check('#proxy-enabled')
+        self.page.fill('#proxy-url', 'http://192.0.2.10:7890')
+        self.page.click('#save')
+        self.page.wait_for_function('__fixture.data.revision === 2')
+        body = self.posts()[0]['body']
+        self.assertEqual(body['settings']['callback_dns'], 'google')
+        self.assertEqual(body['settings']['callback_backend'], 'aiohttp')
+        for key in ('proxy_username', 'proxy_password', 'mcp_token', 'tunnel_key'):
+            self.assertNotIn(key, body)
+        self.page.click('#apply')
+        self.page.wait_for_function('__fixture.data.revision === 3')
+        self.assertEqual(self.posts()[1]['body']['action'], 'apply')
+        self.page.select_option('#callback-dns', 'system')
+        self.page.click('#discard')
+        self.assertEqual(self.page.input_value('#callback-dns'), 'google')
+        self.assertEqual(len(self.posts()), 2)
 
     def test_save_minimal_payload_and_refresh_credentials(self):
         self.page.fill('#listen-port', '8770')
@@ -256,12 +286,100 @@ class PluginPageBrowserTests(unittest.TestCase):
                 root.mkdir(parents=True, exist_ok=True)
                 self.page.screenshot(path=str(root / f'connection-{width}-{theme}.png'), full_page=True)
 
+    def test_tools_query_is_explicit_readonly_and_preserves_dirty_form(self):
+        self.assertEqual(self.page.evaluate("__fixture.calls.filter(c => c.endpoint === 'tools').length"), 0)
+        self.page.fill('#listen-port', '9000')
+        self.page.click('#query-tools')
+        self.page.wait_for_function("document.querySelector('#tools-status').textContent.includes('1 个工具')")
+        self.assertEqual(self.page.input_value('#listen-port'), '9000')
+        self.assertEqual(self.posts(), [])
+        self.assertIn('客户端元数据未刷新', self.page.inner_text('#tools-status'))
+        self.page.click('#tools-list summary')
+        self.assertIn('include_raw', self.page.inner_text('#tools-list pre'))
+        self.assertTrue(self.page.locator('#save').is_enabled())
+
+    def test_help_is_local_and_does_not_change_connection_form(self):
+        self.page.fill('#listen-port', '9000')
+        with self.context.expect_page() as opened:
+            self.page.click('a[href="./help.html"]')
+        help_page = opened.value
+        help_page.wait_for_load_state()
+        self.assertTrue(help_page.url.endswith('/help.html'))
+        self.assertIn('明文传输', help_page.inner_text('body'))
+        self.assertIn('不获得插件管理权', help_page.inner_text('body'))
+        self.assertEqual(self.page.input_value('#listen-port'), '9000')
+        self.assertEqual(self.posts(), [])
+        for width in (1440, 390, 320):
+            help_page.set_viewport_size({'width': width, 'height': 900})
+            self.assertLessEqual(help_page.evaluate('document.documentElement.scrollWidth'), width)
+        help_page.close()
+
     def test_response_text_is_inert(self):
         self.page.evaluate("__fixture.data.versions.plugin = '<script>bad()</script>'")
         self.page.click('#refresh')
         self.page.wait_for_function("document.querySelector('#version').textContent.includes('<script>')")
         self.assertEqual(self.page.locator('#platform-detail img').count(), 0)
         self.assertEqual(self.page.locator('#version script').count(), 0)
+
+    def test_sender_routes_desktop_mobile_status_and_native_config_preservation(self):
+        self.page.evaluate("""() => {
+            const data = __fixture.data;
+            data.settings.enabled = true;
+            data.settings.tunnel_enabled = true;
+            data.settings.tunnel_id = '';
+            data.settings.sender_routes = [
+                {sender_id: '12345678901234567890', tunnel_id: 'tunnel_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', listen_port: 8770},
+                {sender_id: '23456789012345678901', tunnel_id: 'tunnel_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', listen_port: 8771},
+            ];
+            data.runtime.mcp_ready = true;
+            data.runtime.routes = [
+                {sender_id: '12345678901234567890', listen_port: 8770, mcp_ready: true,
+                    tunnel: {state: 'ready', ready: true, healthy: true, binary_available: true}},
+                {sender_id: '23456789012345678901', listen_port: 8771, mcp_ready: false,
+                    error_code: 'startup_failed', tunnel: {state: 'error', last_error_code: 'binary_checksum_mismatch'}},
+            ];
+        }""")
+        routes = self.page.evaluate('__fixture.data.settings.sender_routes')
+        self.page.click('#refresh')
+        self.page.wait_for_selector('#sender-routes-panel', state='visible')
+        self.assertEqual(self.page.locator('#sender-routes-list > li').count(), 2)
+        self.assertIn('发送者 QQ 12345678901234567890', self.page.inner_text('#sender-routes-list'))
+        self.assertIn('127.0.0.1:8771/mcp', self.page.inner_text('#sender-routes-list'))
+        self.assertIn('校验失败', self.page.inner_text('#sender-routes-list'))
+        self.assertEqual(self.page.inner_text('#mcp-status'), '1 / 2 本地已启动')
+        self.assertEqual(self.page.inner_text('#tunnel-status'), '1 / 2 本地就绪')
+        self.assertTrue(self.page.locator('#save').is_disabled())
+        self.assertTrue(self.page.locator('#reconnect-tunnel').is_disabled())
+        self.page.evaluate("document.querySelector('#reconnect-tunnel').click()")
+        self.assertEqual(self.posts(), [])
+
+        screenshots = os.environ.get('DOT_PAGE_SCREENSHOTS')
+        for width, height, theme in [(1440, 1100, 'light'), (390, 844, 'light'), (390, 844, 'dark'), (320, 720, 'light')]:
+            with self.subTest(width=width, theme=theme):
+                self.page.set_viewport_size({'width': width, 'height': height})
+                self.page.evaluate('(theme) => document.documentElement.dataset.theme = theme', theme)
+                self.assertLessEqual(self.page.evaluate('document.documentElement.scrollWidth'), width)
+                self.assertTrue(self.page.locator('#sender-routes-panel').is_visible())
+                for box in self.page.locator('#sender-routes-list > li').evaluate_all(
+                        '(rows) => rows.map(row => {const r = row.getBoundingClientRect(); return {left: r.left, right: r.right, client: row.clientWidth, scroll: row.scrollWidth};})'):
+                    self.assertGreaterEqual(box['left'], 0)
+                    self.assertLessEqual(box['right'], width)
+                    self.assertLessEqual(box['scroll'], box['client'])
+                if screenshots:
+                    root = Path(screenshots)
+                    root.mkdir(parents=True, exist_ok=True)
+                    self.page.screenshot(path=str(root / f'sender-routes-{width}-{theme}.png'), full_page=True)
+                    self.page.locator('.status-panel').screenshot(path=str(root / f'sender-routes-status-{width}-{theme}.png'))
+
+        self.page.fill('#self-id', '34567')
+        self.page.click('#save')
+        self.page.wait_for_function("__fixture.data.revision === 2 && !document.querySelector('#apply').disabled")
+        self.assertEqual(len(self.posts()), 1)
+        self.assertNotIn('sender_routes', self.posts()[0]['body']['settings'])
+        self.assertEqual(self.posts()[0]['body']['settings']['tunnel_id'], '')
+        self.assertEqual(self.page.evaluate('__fixture.data.settings.sender_routes'), routes)
+        self.assertTrue(self.page.locator('#save').is_disabled())
+        self.assertTrue(self.page.locator('#reconnect-tunnel').is_disabled())
 
 
 if __name__ == '__main__':

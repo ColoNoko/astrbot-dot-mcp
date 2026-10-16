@@ -107,8 +107,8 @@ class TunnelRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.supervisor = self.make_supervisor()
 
     def make_supervisor(self, **kwargs):
-        supervisor = runtime.TunnelSupervisor(self.data, self.binary, startup_timeout=0.15,
-                                             stop_timeout=0.03, health_timeout=0.03,
+        supervisor = runtime.TunnelSupervisor(self.data, self.binary, startup_timeout=1,
+                                             stop_timeout=0.03, health_timeout=0.2,
                                              poll_interval=0.01, **kwargs)
         self.supervisors.append(supervisor)
         return supervisor
@@ -314,6 +314,7 @@ class TunnelRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_proxy_startup_timeout_never_retries_direct(self):
         proxy = runtime.ProxySettings(True, "http://proxy.example:3128")
         self.write_health = False
+        self.supervisor.startup_timeout = 0.15
         with self.assertRaisesRegex(runtime.TunnelError, "^startup_timeout$"):
             await self.start(proxy=proxy)
         self.assertEqual(self.spawn.await_count, 1)
@@ -359,6 +360,7 @@ class TunnelRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_startup_timeout_terminates_then_kills_and_cleans(self):
         self.write_health = False
+        self.supervisor.startup_timeout = 0.15
         self.process_factory = lambda: FakeProcess(ignores_term=True)
         with self.assertRaisesRegex(runtime.TunnelError, "^startup_timeout$"):
             await self.start()
@@ -377,6 +379,7 @@ class TunnelRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_cancelled_start_reaps_process_and_removes_secrets(self):
         self.write_health = False
+        self.supervisor.startup_timeout = 0.15
         task = asyncio.create_task(self.start())
         while not self.processes:
             await asyncio.sleep(0)

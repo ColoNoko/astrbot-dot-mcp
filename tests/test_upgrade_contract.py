@@ -24,7 +24,9 @@ class UpgradeContractTests(unittest.TestCase):
     def test_plugin_identity_storage_path_and_version_are_stable(self):
         metadata=(ROOT/'metadata.yaml').read_text()
         self.assertEqual(re.search(r'^name:\s*(\S+)',metadata,re.M).group(1),'astrbot_plugin_dot_private')
-        self.assertIn('version: v0.3.2',metadata)
+        self.assertIn('version: v0.5.6',metadata)
+        version=re.search(r'^version:\s*v(\S+)',metadata,re.M).group(1)
+        self.assertIn('PLUGIN_VERSION = '+json.dumps(version),(ROOT/'endpoint.py').read_text())
         self.assertIn("StarTools.get_data_dir('astrbot_plugin_dot_private')",(ROOT/'main.py').read_text())
 
 class ExistingConfigAndDataTests(unittest.IsolatedAsyncioTestCase):
@@ -47,6 +49,8 @@ class ExistingConfigAndDataTests(unittest.IsolatedAsyncioTestCase):
             try:
                 self.assertEqual(config,original)
                 self.assertNotIn('group_trigger_mode',config)
+                self.assertNotIn('callback_dns',config)
+                self.assertNotIn('callback_backend',config)
                 self.assertEqual(upgraded._group_mode(),'owner_at')
                 self.assertEqual(upgraded.host.store.read(private_mid)['privacy_scope'],'private_owner_only')
                 self.assertEqual(upgraded.host.store.read(group_mid)['group_id'],'300')
@@ -54,7 +58,7 @@ class ExistingConfigAndDataTests(unittest.IsolatedAsyncioTestCase):
                 replay=group_event(); await upgraded.on_group_message(replay)
                 self.assertEqual(upgraded.host.store.status()['messages'],2)
                 self.assertEqual(replay.sent,[])
-                self.assertEqual(upgraded.host.store.db.execute('PRAGMA user_version').fetchone()[0],2)
+                self.assertEqual(upgraded.host.store.db.execute('PRAGMA user_version').fetchone()[0],3)
             finally: await upgraded.terminate()
 
 if __name__=='__main__': unittest.main()

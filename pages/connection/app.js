@@ -2,9 +2,20 @@
 // apiGet/apiPost already unwrap the official status/data compatibility envelope.
 const bridge = window.AstrBotPluginPage;
 const byId = (id) => document.getElementById(id);
-const fields = ['platform-id', 'self-id', 'listen-host', 'listen-port', 'callback-hosts', 'tunnel-id', 'tunnel-enabled', 'tunnel-key', 'proxy-enabled', 'proxy-url', 'proxy-username', 'proxy-password', 'clear-proxy-auth'];
+const fields = ['platform-id', 'self-id', 'listen-host', 'listen-port', 'callback-hosts', 'network-dns', 'attachment-private-http', 'tunnel-id', 'tunnel-enabled', 'tunnel-key', 'proxy-enabled', 'proxy-url', 'proxy-username', 'proxy-password', 'clear-proxy-auth'];
+const networkDnsModes = ['system', 'google', 'legacy'];
 const errors = {
+  invalid_network_dns: '请选择系统 DNS 或 Google 加密 DNS。',
+  network_dns_requires_proxy: 'Google 加密 DNS 需要启用已有代理。',
+  runtime_not_ready: 'MCP 尚未运行，请先应用设置。',
+  tunnel_disabled: 'Tunnel 未启用。',
+  tunnel_reconnect_failed: '重连失败，订阅与 MCP 服务保留，请查看状态。',
   invalid_settings: '设置未通过校验。请检查平台、QQ、端口、域名与密钥格式。',
+  invalid_attachment_dns: '附件 DNS 无效。请选择系统DNS或Google加密DNS（经代理），保存后再应用。',
+  attachment_dns_requires_proxy: '附件 Google加密DNS必须明确启用已配置代理。请开启下方代理并确认地址；不会自动使用系统DNS或直连。',
+  invalid_attachment_http_setting: '私聊文件HTTP设置无效。请明确关闭或开启，保存后再应用。',
+  invalid_callback_dns: '回调 DNS 无效。请选择系统DNS或Google加密DNS（经代理），保存后再应用。',
+  callback_dns_requires_proxy: 'Google加密DNS必须明确启用现有代理。请开启下方代理并确认地址；不会自动使用系统DNS或直连。',
   save_failed: '保存失败。输入已保留，请检查服务器状态后刷新。',
   revision_conflict: '配置已被其他页面更新。请重新载入最新配置后再编辑。',
   forbidden: '请求授权已失效。请刷新状态，或重新打开 AstrBot 插件页面。',
@@ -23,11 +34,22 @@ const errors = {
   already_running: 'Tunnel 已有运行进程，请先停止再应用。',
   runtime_in_use: 'Tunnel 运行目录正被占用，请检查是否有重复实例。',
   start_failed: 'Tunnel 启动失败，请检查已保存的设置与服务器日志。',
+  storage_full: '消息存储已满，新消息已拒收且不触发默认LLM。完成已处理积压后，请原发送者重发；不会自动恢复拒收内容。',
+  ingest_failed: '新消息入库失败，已拒收且不会交给默认LLM。检查磁盘后请原发送者重发。',
+  storage_failed: '存储写入失败，请检查磁盘；已开始的回复不能盲重发。',
+  storage_busy: '消息数据库正被其他进程使用，请稍后重试。',
+  history_migration_busy: '数据库正在使用中，无法安全升级。请先停止旧实例。',
+  history_migration_requires_space: '旧数据库超过 10 MiB，已保留原数据并停止启动。请先备份并按升级说明处理。',
   startup_failed: '本地服务启动失败，请检查绑定、密钥与端口。',
   startup_timeout: 'Tunnel 启动超时，请检查运行程序与服务器日志。',
   process_exited: 'Tunnel 进程已退出，请检查配置和日志后重新应用。',
   health_unavailable: '无法完成 Tunnel 本地健康检查，请刷新状态或检查日志。',
   not_ready: 'Tunnel 尚未在本地就绪，请稍后刷新状态。',
+  reconnect_unavailable: '仅已启用且运行中的 MCP/Tunnel 可重连。',
+  invalid_sender_routes: '发送者路由配置无效，请在 AstrBot 原生插件设置中检查发送者 QQ、Tunnel ID 与端口。',
+  multi_route_apply_required: '多路由模式不支持单独重连 Tunnel，请使用“应用并重启”重启所有路由。',
+  runtime_config_changed: '设置与当前运行配置不同，请先保存并应用。',
+  reconnect_failed: 'Tunnel 重连失败，MCP 服务和订阅保留，请检查状态。',
   stop_failed: '服务未能完全停止。请检查服务器进程，确认停止后再应用。',
   tunnel_stop_incomplete: 'Tunnel 尚未完全停止。请确认服务器上的旧进程已退出。',
   cleanup_failed: '运行文件清理失败，请检查服务器目录权限。',
@@ -39,7 +61,7 @@ const tunnelStates = {
   binary_missing: '缺少运行程序', unavailable: '不可用', error: '启动异常',
   failed: '启动异常', stopping: '正在停止', not_configured: '待配置', waiting: '等待启动',
 };
-const state = {snapshot: null, formRevision: null, busy: false, stale: true, conflict: false, dirty: false};
+const state = {snapshot: null, formRevision: null, busy: false, toolsBusy: false, stale: true, conflict: false, dirty: false};
 let unsubscribeContext;
 
 function safeText(value, limit = 128) {
@@ -67,12 +89,44 @@ function validProxyUrl(value) {
 function object(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
+function normalizeTunnel(raw) {
+  const tunnel = object(raw);
+  return {
+    state: safeText(tunnel.state, 40), process_running: tunnel.process_running === true,
+    healthy: tunnel.healthy === true, ready: tunnel.ready === true, binary_available: tunnel.binary_available === true,
+    error_code: Object.hasOwn(errors, tunnel.last_error_code) ? tunnel.last_error_code :
+      Object.hasOwn(errors, tunnel.error_code) ? tunnel.error_code : '',
+  };
+}
+function normalizeRoutes(raw, runtime = false) {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw) || raw.length > 16) throw new Error('invalid_response');
+  return raw.map((value) => {
+    const route = object(value);
+    if (typeof route.sender_id !== 'string' || !/^[1-9][0-9]{0,19}$/.test(route.sender_id) ||
+        !Number.isInteger(route.listen_port) || route.listen_port < 1024 || route.listen_port > 65535) throw new Error('invalid_response');
+    return {sender_id: route.sender_id, listen_port: route.listen_port, ...(runtime ? {
+      mcp_ready: route.mcp_ready === true,
+      error_code: Object.hasOwn(errors, route.error_code) ? route.error_code : '',
+      tunnel: normalizeTunnel(route.tunnel),
+    } : {})};
+  });
+}
+function multiRouteMode(snapshot = state.snapshot) {
+  return !!(snapshot?.settings.sender_routes.length || snapshot?.runtime.routes.length);
+}
 function normalizeStatus(raw) {
   const value = object(raw);
   const settings = object(value.settings);
   const secrets = object(value.secrets);
   const runtime = object(value.runtime);
-  const tunnel = object(runtime.tunnel);
+  const legacyCallbackDns = Object.hasOwn(settings, 'callback_dns') ? settings.callback_dns : 'system';
+  const legacyAttachmentDns = Object.hasOwn(settings, 'attachment_dns') ? settings.attachment_dns : 'system';
+  if (!Object.hasOwn(settings, 'network_dns') &&
+      (![ 'system', 'google' ].includes(legacyCallbackDns) || ![ 'system', 'google' ].includes(legacyAttachmentDns))) throw new Error('invalid_response');
+  const networkDns = Object.hasOwn(settings, 'network_dns') ? settings.network_dns : (legacyCallbackDns === legacyAttachmentDns ? legacyCallbackDns : 'legacy');
+  const attachmentPrivateHttp = Object.hasOwn(settings, 'attachment_private_http') ? settings.attachment_private_http : false;
+  if (typeof attachmentPrivateHttp !== 'boolean') throw new Error('invalid_response');
   if (typeof value.csrf_token !== 'string' || !value.csrf_token || value.csrf_token.length > 256 ||
       !['string', 'number'].includes(typeof value.revision) ||
       (typeof value.revision === 'number' && !Number.isSafeInteger(value.revision)) ||
@@ -80,6 +134,7 @@ function normalizeStatus(raw) {
     throw new Error('invalid_response');
   }
   if (settings.platform_id !== '' && !validPlatformId(settings.platform_id)) throw new Error('invalid_response');
+  if (!networkDnsModes.includes(networkDns)) throw new Error('invalid_response');
   if (typeof settings.proxy_enabled !== 'boolean' || typeof settings.proxy_url !== 'string' ||
       (settings.proxy_url && !validProxyUrl(settings.proxy_url))) throw new Error('invalid_response');
   const platforms = Array.isArray(value.platforms) ? value.platforms.slice(0, 100)
@@ -92,18 +147,19 @@ function normalizeStatus(raw) {
       self_id: safeText(settings.self_id, 20), listen_host: safeText(settings.listen_host, 32) || '127.0.0.1',
       listen_port: Number.isInteger(settings.listen_port) ? settings.listen_port : 8769,
       callback_hosts: Array.isArray(settings.callback_hosts) ? settings.callback_hosts.slice(0, 8).map((host) => safeText(host, 253)) : [],
+      network_dns: networkDns, attachment_private_http: attachmentPrivateHttp,
       tunnel_enabled: settings.tunnel_enabled === true, tunnel_id: safeText(settings.tunnel_id, 256),
       proxy_enabled: settings.proxy_enabled, proxy_url: settings.proxy_url,
+      sender_routes: normalizeRoutes(settings.sender_routes),
     },
     secrets: {mcp_token_set: secrets.mcp_token_set === true, tunnel_key_set: secrets.tunnel_key_set === true,
       proxy_username_set: secrets.proxy_username_set === true, proxy_password_set: secrets.proxy_password_set === true},
     platforms,
-    runtime: {mcp_ready: runtime.mcp_ready === true, error_code: Object.hasOwn(errors, runtime.error_code) ? runtime.error_code : '', tunnel: {
-      state: safeText(tunnel.state, 40), process_running: tunnel.process_running === true,
-      healthy: tunnel.healthy === true, ready: tunnel.ready === true, binary_available: tunnel.binary_available === true,
-      error_code: Object.hasOwn(errors, tunnel.last_error_code) ? tunnel.last_error_code :
-        Object.hasOwn(errors, tunnel.error_code) ? tunnel.error_code : '',
-    }},
+    runtime: {mcp_ready: runtime.mcp_ready === true, error_code: Object.hasOwn(errors, runtime.error_code) ? runtime.error_code : '',
+      tunnel: normalizeTunnel(runtime.tunnel), routes: normalizeRoutes(runtime.routes, true)},
+    capacity_alert: {active: object(value.capacity_alert).active === true,
+      persistent: object(value.capacity_alert).persistent === true,
+      count: Number.isInteger(object(value.capacity_alert).count) && object(value.capacity_alert).count >= 0 ? Math.min(object(value.capacity_alert).count, 2147483647) : 0},
     version: safeText(object(value.versions).plugin, 24),
   };
 }
@@ -117,13 +173,16 @@ function currentSettings() {
     platform_id: byId('platform-id').value, adapter: byId('platform-id').value ? 'aiocqhttp' : (state.snapshot?.settings.adapter || ''), self_id: byId('self-id').value.trim(),
     listen_host: byId('listen-host').value, listen_port: Number(byId('listen-port').value),
     callback_hosts: byId('callback-hosts').value.split(/\r?\n/).map((host) => host.trim()).filter(Boolean),
+    network_dns: byId('network-dns').value,
+    attachment_private_http: byId('attachment-private-http').checked,
     tunnel_enabled: byId('tunnel-enabled').checked, tunnel_id: byId('tunnel-id').value.trim(),
     proxy_enabled: byId('proxy-enabled').checked, proxy_url: byId('proxy-url').value.trim(),
   };
 }
 function savedSettings() {
   if (!state.snapshot) return null;
-  const {enabled, ...settings} = state.snapshot.settings;
+  // Sender routes are edited only in AstrBot's native plugin settings.
+  const {enabled, sender_routes, ...settings} = state.snapshot.settings;
   return settings;
 }
 function recomputeDirty() {
@@ -137,11 +196,16 @@ function updateControls() {
   const unavailable = state.busy || state.stale || !state.snapshot;
   byId('settings-fields').disabled = unavailable;
   byId('refresh').disabled = state.busy || !bridge;
+  byId('query-tools').disabled = unavailable || state.toolsBusy;
   byId('save').disabled = unavailable || state.conflict || !state.dirty;
   byId('discard').disabled = state.busy || (!state.dirty && !state.conflict);
   byId('reload').disabled = state.busy;
   byId('apply').disabled = unavailable || state.dirty || state.conflict;
   byId('stop').disabled = unavailable;
+  byId('reconnect-tunnel').disabled = unavailable || state.dirty || state.conflict ||
+    multiRouteMode() ||
+    !state.snapshot?.settings?.enabled || !state.snapshot?.settings?.tunnel_enabled ||
+    !state.snapshot?.runtime?.mcp_ready;
   byId('proxy-username').disabled = unavailable || byId('clear-proxy-auth').checked;
   byId('proxy-password').disabled = unavailable || byId('clear-proxy-auth').checked;
   byId('proxy-auth-warning').hidden = !state.snapshot ||
@@ -178,6 +242,8 @@ function populateForm(snapshot, clearSecrets = true) {
   host.value = settings.listen_host;
   byId('listen-port').value = String(settings.listen_port);
   byId('callback-hosts').value = settings.callback_hosts.join('\n');
+  byId('network-dns').value = settings.network_dns;
+  byId('attachment-private-http').checked = settings.attachment_private_http;
   byId('tunnel-enabled').checked = settings.tunnel_enabled;
   byId('tunnel-id').value = settings.tunnel_id;
   byId('proxy-enabled').checked = settings.proxy_enabled;
@@ -209,8 +275,44 @@ function renderRuntime(snapshot) {
   byId('tunnel-detail').textContent = tunnel.error_code ? errors[tunnel.error_code] : '进程状态不代表外网连通';
   byId('binary-status').textContent = tunnel.binary_available ? '已检测到' : '未检测到';
   byId('tunnel-health').textContent = tunnel.healthy ? '本地检查通过' : '尚未就绪';
+  const multi = multiRouteMode(snapshot);
+  byId('sender-routes-panel').hidden = !multi;
+  byId('sender-routes-empty').hidden = runtime.routes.length > 0;
+  byId('sender-routes-list').replaceChildren(...runtime.routes.map((route) => {
+    const row = document.createElement('li');
+    const sender = document.createElement('strong');
+    sender.textContent = `发送者 QQ ${route.sender_id}`;
+    const endpoint = document.createElement('p');
+    endpoint.className = 'status-detail';
+    endpoint.textContent = `${settings.listen_host}:${route.listen_port}/mcp`;
+    const status = document.createElement('p');
+    status.textContent = `MCP：${route.mcp_ready ? '本地已启动' : '已停止'} · Tunnel：${route.tunnel.ready ? '本地就绪' :
+      Object.hasOwn(tunnelStates, route.tunnel.state) ? tunnelStates[route.tunnel.state] :
+        route.tunnel.process_running ? '进程运行中' : settings.tunnel_enabled ? '未运行' : '未启用'}`;
+    row.append(sender);
+    row.append(endpoint);
+    row.append(status);
+    const codes = [route.error_code, route.tunnel.error_code].filter((code, index, values) => code && values.indexOf(code) === index);
+    if (codes.length) {
+      const issue = document.createElement('p');
+      issue.className = 'sender-route-issue';
+      issue.textContent = codes.map((code) => errors[code]).join(' ');
+      row.append(issue);
+    }
+    return row;
+  }));
+  if (multi) {
+    const total = runtime.routes.length;
+    byId('mcp-status').textContent = total ? `${runtime.routes.filter((route) => route.mcp_ready).length} / ${total} 本地已启动` : '路由未运行';
+    byId('mcp-detail').textContent = '各发送者使用独立 MCP 端口，详见下方';
+    byId('tunnel-status').textContent = total ? `${runtime.routes.filter((route) => route.tunnel.ready).length} / ${total} 本地就绪` : '路由未运行';
+    byId('tunnel-detail').textContent = '按路由查看；本地状态不代表外网连通';
+    byId('binary-status').textContent = total ? `${runtime.routes.filter((route) => route.tunnel.binary_available).length} / ${total} 已检测到` : '等待路由启动';
+    byId('tunnel-health').textContent = total ? `${runtime.routes.filter((route) => route.tunnel.healthy).length} / ${total} 本地检查通过` : '等待路由启动';
+  }
   const issue = byId('runtime-issue');
-  issue.textContent = [runtime.error_code, tunnel.error_code].filter((code, index, codes) => code && codes.indexOf(code) === index).map((code) => errors[code]).join(' ');
+  issue.textContent = [runtime.error_code, ...(multi ? [] : [tunnel.error_code])].filter((code, index, codes) => code && codes.indexOf(code) === index).map((code) => errors[code]).join(' ');
+  if (snapshot.capacity_alert?.active) issue.textContent += ` 已拒收${snapshot.capacity_alert.count}次；告警${snapshot.capacity_alert.persistent ? '已保存在本地' : '仅在内存中，磁盘持久化失败'}。腾出空间后须重发。`;
   issue.hidden = !issue.textContent;
   byId('mcp-auth-state').textContent = secrets.mcp_token_set ? '自动管理 · 已配置' : '自动管理 · 启动时配置';
   for (const [id, present] of [['tunnel-secret-state', secrets.tunnel_key_set],
@@ -252,8 +354,10 @@ function validationError() {
   const hosts = settings.callback_hosts;
   const hostname = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
   if (hosts.length > 8 || new Set(hosts).size !== hosts.length || hosts.some((host) => !hostname.test(host))) return ['callback-hosts', '回调域名最多 8 个，每行一个小写域名；请移除重复项、协议、端口、路径和通配符。'];
+  if (!['system', 'google'].includes(settings.network_dns)) return ['network-dns', errors.invalid_network_dns];
+  if (settings.network_dns === 'google' && !settings.proxy_enabled) return ['proxy-enabled', errors.network_dns_requires_proxy];
   if (settings.tunnel_id && !/^tunnel_(?:[a-z0-9]{4}_)?[a-z0-9]{32}$/.test(settings.tunnel_id)) return ['tunnel-id', '请填写完整的 Tunnel ID：以 tunnel_ 开头，保留原始格式。'];
-  if (settings.tunnel_enabled && !settings.tunnel_id) return ['tunnel-id', '启用 Tunnel 前，请填写已有的 Tunnel ID。'];
+  if (settings.tunnel_enabled && !settings.tunnel_id && !state.snapshot.settings.sender_routes.length) return ['tunnel-id', '启用 Tunnel 前，请填写已有的 Tunnel ID。'];
   if (settings.tunnel_enabled && !state.snapshot.secrets.tunnel_key_set && !byId('tunnel-key').value) return ['tunnel-key', '启用 Tunnel 前，请填写专用运行密钥。'];
   if (byId('tunnel-key').value && !/^[\x21-\x7e]{32,4096}$/.test(byId('tunnel-key').value)) return ['tunnel-key', '运行密钥需为 32 到 4096 个可见 ASCII 字符，不能包含空格。'];
   if ((settings.proxy_enabled && !settings.proxy_url) || (settings.proxy_url && !validProxyUrl(settings.proxy_url))) {
@@ -297,6 +401,60 @@ async function mutate(endpoint, payload, successMessage) {
     if (code === 'revision_conflict') state.conflict = true;
   } finally { state.busy = false; updateControls(); }
 }
+async function queryTools() {
+  if (state.busy || state.toolsBusy || state.stale || !state.snapshot) return;
+  state.toolsBusy = true;
+  byId('tools-status').textContent = '正在查询服务端工具…';
+  byId('tools-list').replaceChildren();
+  byId('tools-list').hidden = true;
+  updateControls();
+  try {
+    const response = object(await bridge.apiGet('tools'));
+    if (!Array.isArray(response.tools) || response.tools.length > 64) throw new Error('invalid_tools');
+    const names = new Set();
+    const rows = response.tools.map((tool) => {
+      if (!tool || typeof tool.name !== 'string' || !/^[A-Za-z0-9_.-]{1,128}$/.test(tool.name) ||
+          names.has(tool.name) || typeof tool.description !== 'string') throw new Error('invalid_tools');
+      names.add(tool.name);
+      const row = document.createElement('li');
+      const name = document.createElement('strong');
+      name.textContent = tool.name;
+      row.append(name);
+      const description = document.createElement('p');
+      description.textContent = safeText(tool.description, 600);
+      row.append(description);
+      if (tool.inputSchema && typeof tool.inputSchema === 'object' && !Array.isArray(tool.inputSchema)) {
+        const details = document.createElement('details');
+        const summary = document.createElement('summary');
+        summary.textContent = '查看参数';
+        const schema = document.createElement('pre');
+        const encoded = JSON.stringify(tool.inputSchema, null, 2);
+        schema.textContent = encoded.length > 16000 ? encoded.slice(0, 16000) + '\n…参数过长，已截断' : encoded;
+        details.append(summary);
+        details.append(schema);
+        row.append(details);
+      }
+      return row;
+    });
+    byId('tools-list').replaceChildren(...rows);
+    byId('tools-list').hidden = rows.length === 0;
+    const version = safeText(response.version, 24);
+    const fingerprint = response.manifest && typeof response.manifest.sha256 === 'string' && response.manifest.sha256.length === 64 && /^[a-f0-9]{64}$/.test(response.manifest.sha256) ? response.manifest.sha256 : '';
+    byId('tools-status').textContent = `服务端返回 ${rows.length} 个工具${version ? ` · v${version.replace(/^v/, '')}` : ''}。客户端目录未知。${fingerprint ? ` 清单指纹 ${fingerprint}` : ''}`;
+  } catch {
+    byId('tools-status').textContent = '无法查询服务端工具。请确认插件已更新并重载后重试。';
+  } finally {
+    state.toolsBusy = false;
+    updateControls();
+  }
+}
+byId('query-tools').addEventListener('click', () => void queryTools());
+byId('open-help').addEventListener('click', (event) => {
+  if (state.busy || state.dirty) {
+    event.preventDefault();
+    notice(state.busy ? '操作进行中，请稍候再打开帮助。' : '请先保存或撤销修改，再打开帮助。未保存的输入已保留。');
+  }
+});
 byId('settings-form').addEventListener('submit', (event) => {
   event.preventDefault();
   if (state.busy || state.stale || state.conflict || !state.dirty) return;
@@ -324,6 +482,10 @@ byId('reload').addEventListener('click', () => void refresh({replaceForm: true})
 byId('apply').addEventListener('click', () => {
   if (state.dirty || state.conflict) return;
   void mutate('action', {action: 'apply'}, '已执行应用。请根据上方本地运行状态检查结果；QQ 往返仍需实际验证。');
+});
+byId('reconnect-tunnel').addEventListener('click', () => {
+  if (byId('reconnect-tunnel').disabled) return;
+  void mutate('action', {action: 'reconnect_tunnel'}, '已重建 Tunnel 连接；ChatGPT 会话与工具目录仍需客户端刷新确认。');
 });
 byId('stop').addEventListener('click', () => {
   void mutate('action', {action: 'stop'}, '服务已停止，常规配置中的插件开关保持原值。');

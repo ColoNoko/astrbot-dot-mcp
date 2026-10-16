@@ -99,9 +99,9 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
         mid=next(iter(self.plugin.captured)); e.message_obj.raw_message=dict(e.message_obj.raw_message)
         self.assertEqual((await self.plugin.host.reply(mid,'x','key'))['state'],'not_sent')
         self.assertEqual(e.sent,[])
-    async def test_raw_nontext_and_malformed_arrays_rejected(self):
-        for raw in ('hello', [], [{'type':'markdown','data':{'text':'hello'}}],
-                    [{'type':'text','data':{'text':'hello'}},{'type':'mface','data':{}}],
+    async def test_malformed_raw_arrays_and_normalization_mismatch_rejected(self):
+        for raw in ('hello', [], [{'data':{}}], [{'type':'face','data':None}],
+                    [{'type':'markdown','data':{'content':'different'}}],
                     [{'type':'text','data':{'text':42}}], [{'type':'file','data':{}}]):
             e=Event(); e.message_obj.raw_message['message']=raw
             await self.plugin.on_private_message(e); self.assertFalse(e.stopped)
@@ -146,7 +146,7 @@ class MainTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(e.stopped); raise RuntimeError('private token')
         self.plugin.host.store.ingest=fail
         await self.plugin.on_private_message(e)
-        self.assertEqual(logs[-1],'dot_private_ingest_failed')
+        self.assertEqual(logs[-1],'dot_private_ingest_failed message_rejected; free_completed_history_then_resend')
     async def test_restart_read_survives_old_reply_not_sent(self):
         e=Event(); await self.plugin.on_private_message(e)
         mid=next(iter(self.plugin.captured))

@@ -1,0 +1,114 @@
+{
+  "enabled": {
+    "type": "bool",
+    "default": false
+  },
+  "platform_id": {
+    "type": "string",
+    "default": ""
+  },
+  "adapter": {
+    "type": "string",
+    "default": ""
+  },
+  "self_id": {
+    "type": "string",
+    "default": ""
+  },
+  "sender_id": {
+    "type": "string",
+    "default": ""
+  },
+  "mcp_token": {
+    "type": "string",
+    "default": "",
+    "secret": true
+  },
+  "callback_hosts": {
+    "type": "list",
+    "default": []
+  },
+  "listen_host": {
+    "type": "string",
+    "default": "127.0.0.1"
+  },
+  "listen_port": {
+    "type": "int",
+    "default": 8769
+  },
+  "group_ids": {
+    "type": "list",
+    "default": []
+  },
+  "group_trigger_mode": {
+    "type": "string",
+    "default": "owner_at",
+    "options": [
+      "owner_at",
+      "all_messages"
+    ]
+  },
+  "tunnel_id": {
+    "type": "string",
+    "default": ""
+  },
+  "tunnel_enabled": {
+    "type": "bool",
+    "default": false
+  },
+  "tunnel_runtime_key": {
+    "type": "string",
+    "default": "",
+    "secret": true
+  },
+  "proxy_enabled": {
+    "type": "bool",
+    "default": false
+  },
+  "proxy_url": {
+    "type": "string",
+    "default": ""
+  },
+  "proxy_username": {
+    "type": "string",
+    "default": "",
+    "secret": true
+  },
+  "proxy_password": {
+    "type": "string",
+    "default": "",
+    "secret": true
+  },
+  "callback_backend": {
+    "type": "string",
+    "default": "aiohttp",
+    "options": [
+      "aiohttp",
+      "wechat_httpcore"
+    ]
+  },
+  "callback_dns": {
+    "type": "string",
+    "default": "system",
+    "options": [
+      "system",
+      "google"
+    ]
+  },
+  "attachment_private_http": {
+    "type": "bool",
+    "default": false
+  },
+  "chat_context_messages": {
+    "type": "int",
+    "default": 0
+  },
+  "attachment_dns": {
+    "type": "string",
+    "default": "system",
+    "options": [
+      "system",
+      "google"
+    ]
+  }
+}

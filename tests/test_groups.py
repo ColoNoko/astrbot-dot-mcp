@@ -62,10 +62,13 @@ class GroupTests(unittest.IsolatedAsyncioTestCase):
                         [{'type':'at','data':{'qq':'999'}},{'type':'text','data':{'text':'hello'}}]):
             e=group_event(); e.message_obj.raw_message['message']=message; e.messages=[Plain('hello')]
             await self.plugin.on_group_message(e); self.assertFalse(e.stopped)
-    async def test_quote_forward_media_and_unknown_segments_rejected(self):
+    async def test_opaque_segments_preserve_authorized_group_body(self):
         for kind in ('reply','forward','node','image','record','video','file','markdown','mface'):
             e=group_event(); e.message_obj.raw_message['message'].append({'type':kind,'data':{'text':'100'}})
-            await self.plugin.on_group_message(e); self.assertFalse(e.stopped)
+            e.message_obj.message_id=kind; e.message_obj.raw_message['message_id']=kind
+            mid=await self.accept(e)
+            marker='[引用消息]' if kind=='reply' else '[暂不支持的消息]'
+            self.assertEqual(self.plugin.host.store.read(mid)['text'],' hello  world '+marker)
     async def test_raw_mention_authoritative_when_normalizer_drops_at(self):
         e=group_event(); e.messages=[Plain('hello'),Plain('world')]
         await self.accept(e)

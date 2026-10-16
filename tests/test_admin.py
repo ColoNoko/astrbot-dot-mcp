@@ -16,6 +16,10 @@ class AdminTests(unittest.IsolatedAsyncioTestCase):
         self.config = Config(enabled=False, platform_id='instance-1',adapter='aiocqhttp',
                              self_id='100',sender_id='200',mcp_token='DUMMY_'+'x'*40,
                              group_ids=['300'],callback_hosts=[])
+        # Scope migration is independently covered in test_access_policy.
+        self.config.update(access_rules_version=1, private_sender_ids=['200'],
+            group_rules=[{'__template_key':'group','group_id':'300','mode':'at',
+                          'at_sender_scope':'selected','sender_ids':['200']}])
         self.p = self.module.Main(object(), self.config)
         self.req = types.SimpleNamespace(username='local-admin',plugin_name='astrbot_plugin_dot_private')
         await self.p.initialize()
@@ -24,6 +28,52 @@ class AdminTests(unittest.IsolatedAsyncioTestCase):
     def payload(self, **kwargs):
         status=self.p.admin.status(self.req)
         return dict(csrf_token=status['csrf_token'],revision=status['revision'],**kwargs)
+    async def test_retired_callback_backend_is_hidden_and_ignored_without_config_rewrite(self):
+        self.assertNotIn('callback_backend', self.p.admin.status(self.req)['settings'])
+        for legacy in ('wechat_httpcore', 'aiohttp', 'SECRET_SENTINEL', None, True, [], {}):
+            with self.subTest(legacy=legacy):
+                self.config['callback_backend'] = copy.deepcopy(legacy)
+                before = copy.deepcopy(dict(self.config))
+                status = self.p.admin.status(self.req)
+                self.assertNotIn('callback_backend', status['settings'])
+                self.assertNotIn('SECRET_SENTINEL', str(status))
+                self.assertIsNone(status['runtime']['error_code'])
+                self.assertEqual(dict(self.config), before)
+                result = await self.p.admin.mutate(self.req,
+                    self.payload(settings={'listen_port': 8770}), 'settings')
+                self.assertEqual(self.config.saved['callback_backend'], legacy)
+                self.assertNotIn('callback_backend', result['settings'])
+                self.assertIsNone(result['runtime']['error_code'])
+
+    async def test_stale_page_cannot_reactivate_or_replace_retired_callback_backend(self):
+        for stored in (None, 'wechat_httpcore', 'SECRET_SENTINEL'):
+            if stored is None:
+                self.config.pop('callback_backend', None)
+            else:
+                self.config['callback_backend'] = stored
+            for supplied in ('wechat_httpcore', 'aiohttp', 'unknown', None, True, [], {}):
+                with self.subTest(stored=stored, supplied=supplied):
+                    result = await self.p.admin.mutate(self.req,
+                        self.payload(settings={'callback_backend': supplied}), 'settings')
+                    self.assertNotIn('callback_backend', result['settings'])
+                    self.assertIsNone(result['runtime']['error_code'])
+                    if stored is None:
+                        self.assertNotIn('callback_backend', self.config.saved)
+                    else:
+                        self.assertEqual(self.config.saved['callback_backend'], stored)
+
+    async def test_retired_callback_backend_values_do_not_block_startup(self):
+        self.config['enabled'] = True
+        for legacy in ('wechat_httpcore', 'aiohttp', 'SECRET_SENTINEL', None, True, [], {}):
+            with self.subTest(legacy=legacy):
+                self.config['callback_backend'] = copy.deepcopy(legacy)
+                before = copy.deepcopy(dict(self.config))
+                await self.p._start_enabled()
+                self.assertTrue(self.p.ready)
+                self.assertIsNone(self.p.runtime_error)
+                self.assertEqual(dict(self.config), before)
+                await self.p._stop_runtime()
+
     async def test_redacted_status_preserves_existing_config(self):
         result=self.p.admin.status(self.req)
         self.assertTrue(result['secrets']['mcp_token_set'])
@@ -137,6 +187,9 @@ class AdminTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(asyncio.CancelledError): await self.p._stop_runtime()
         self.assertIsNone(self.p.host); self.assertIsNone(self.p.endpoint)
         with self.assertRaises(Exception): host.store.status()
+        # An unconfirmed close retains ownership until a later verified stop.
+        self.assertIsNotNone(self.p.tunnel)
+        self.p.tunnel = None  # synthetic cancelled supervisor has no real process
     async def test_runtime_key_write_never_truncates_hardlink(self):
         import os
         root=Path(self.tmp.name); other=root/'other'; other.write_text('unchanged')

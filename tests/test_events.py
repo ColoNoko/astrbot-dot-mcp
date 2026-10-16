@@ -185,6 +185,31 @@ class EventsTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(first[2]["webhook-signature"], second[2]["webhook-signature"])
         self.assertEqual(self.events.status()["deliveries"], {"acknowledged": 1})
 
+    async def test_new_network_categories_preserve_bounded_delivery_queue_retries(self):
+        await self.events.subscribe(subscribe_params(ttlMs=None))
+        self.enqueue()
+        for code in ('callback_proxy_connect_failed','callback_server_disconnected',
+                     'callback_connection_reset','callback_response_incomplete'):
+            self.transport.error=code
+            self.assertTrue(await self.events.deliver_once())
+            row=self.db.execute('SELECT status,error FROM event_deliveries').fetchone()
+            self.assertEqual(row,('retry',code))
+            self.now += 301
+        self.transport.error=None
+        self.transport.status=200
+        self.assertTrue(await self.events.deliver_once())
+        self.assertEqual(self.events.status()['deliveries'],{'acknowledged':1})
+
+    async def test_active_subscription_limit_preserves_existing(self):
+        from copy import deepcopy
+        for number in range(events_module.MAX_ACTIVE_SUBSCRIPTIONS):
+            params=subscribe_params(ttlMs=None);params['delivery']['url']+=str(number)
+            await self.events.subscribe(params)
+        params=subscribe_params(ttlMs=None);params['delivery']['url']+='extra'
+        with self.assertRaisesRegex(EventError,'subscription_limit_reached'):
+            await self.events.subscribe(params)
+        self.assertEqual(self.events.status()['active_subscriptions'],8)
+
     async def test_retry_exhaustion_and_terminal_statuses(self):
         await self.events.subscribe(subscribe_params(ttlMs=None))
         self.enqueue()

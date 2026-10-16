@@ -4,7 +4,8 @@
 
 Target: AstrBot v4.28.2 native plugin pages. Entry: `pages/connection/index.html`.
 The host injects `window.AstrBotPluginPage`; the page waits for `ready()` and uses
-only `apiGet('status')`, `apiPost('settings', body)`, and `apiPost('action', body)`.
+only `apiGet('status')`, `apiPost('settings', body)`, `apiPost('action', body)`,
+and the read-only query `apiPost('history', body)`.
 The official bridge already unwraps a `{status: 'ok', data: value}` response and
 rejects an error envelope; handlers return plain business JSON. The page must not
 apply a second `.data` unwrap. No direct Dashboard fetch or parent DOM access.
@@ -12,6 +13,61 @@ apply a second `.data` unwrap. No direct Dashboard fetch or parent DOM access.
 Current online documentation uses newer “View” names. Do not rename the directory
 or bridge from this pinned Page integration without checking the targeted release.
 The shell title is supplied by `pages.connection.title` in plugin i18n resources.
+
+### In-document tabs
+
+The v4.28.2 sidebar opens the first native plugin page; its page shell has no
+sibling-page selector and its bridge has no navigation operation. Therefore
+`pages/connection/index.html` is the single entry with visible **连接设置** and
+**消息记录** tabs. `tabs.js` changes only local panel visibility and accessible
+tab state. Arrow keys, Home and End move focus between the two tabs. It never
+navigates the parent, adds an iframe, or accesses another page's assets.
+
+The connection panel stays mounted, preserving unsaved fields and masked secret
+inputs. `history.js` exports a reusable controller scoped to `#history-panel`,
+with `history-` IDs, `h-` classes, and panel-local busy state. `history.css` uses
+scoped element rules and namespaced classes. History initializes once, when the
+user first opens that tab; repeated tab changes do not repeat queries or writes.
+History errors do not disable or modify connection settings.
+
+### Native sender routes
+
+`settings.sender_routes` is an optional, read-only list of up to 16 native plugin
+route entries (`sender_id`, `tunnel_id`, `listen_port`). This page never edits or
+posts it and excludes it from editable-form dirty comparison. Configured routes
+allow a blank global Tunnel ID; the shared Tunnel key is still required when
+Tunnel is enabled. Multi-route mode ignores the global Tunnel ID and listen port.
+
+`runtime.routes` is an optional list of active child statuses: `sender_id`,
+`listen_port`, `mcp_ready`, `error_code`, and the usual `tunnel` status object.
+The page renders per-sender local status and aggregate counts without claiming
+remote connectivity. With configured or active routes, the standalone reconnect
+button is disabled; Apply restarts all routes. `multi_route_apply_required` and
+`invalid_sender_routes` render fixed instructions to use Apply or native settings.
+
+### Read-only message history
+
+The history controller obtains `csrf_token` from `GET status`, then queries:
+
+- `POST history`: `{csrf_token, action: "conversations", before: null, limit: 50}`
+- `POST history`: `{csrf_token, action: "messages", conversation_type: "private" | "group", group_id, before: null, limit: 30}`
+
+`group_id` is empty for private messages and comes from a returned conversation
+for groups. Both responses expose `next_before` as an opaque string or `null`;
+subsequent pages pass that value back in `before`. There is no overall 50-group
+display cap. Messages are validated against the selected conversation before
+rendering, and new conversations do not replace the currently visible messages.
+
+History only displays bounded, plain-text message/reply fields and safe attachment
+placeholders. No attachment URLs, internal routing/source IDs, raw errors, or
+credentials enter the DOM. Group views display a group-privacy reminder. Processing
+states are separate from reply states: `adapter_completed` means the adapter
+returned, not that QQ delivery was confirmed; `uncertain` never triggers a retry.
+No send, complete, or delete controls are provided. Storage usage and the `blocked`
+flag come from the backend. This UI neither enforces nor changes storage retention.
+The `multi_route_history_unavailable` error explains that this Dashboard history
+view is unavailable in multi-route mode; each route's MCP history tools remain
+available. It never merges records across routes or falls back to a single route.
 
 All scripts, CSS and images are local relative assets. `assets/logo.png` is an
 unchanged byte-for-byte copy of the user-provided root `logo.png`. No CDN, framework,
@@ -156,8 +212,13 @@ all mutations remain disabled.
 ## Verification
 
 - `node --check pages/connection/app.js`
+- `node --check pages/connection/history.js`
+- `node --check pages/connection/tabs.js`
 - `node --test tests/test_plugin_page_logic.cjs`: dependency-free synthetic DOM and
   bridge unit checks, not a rendered browser or real AstrBot integration.
+- `node --test tests/test_history_page.mjs`: dependency-free history and integrated
+  tab checks, including hostile text, paging, conversation isolation, dirty settings
+  preservation, keyboard navigation, and interrupted/repeated tab flows.
 - `python -m unittest discover -s tests -p test_plugin_page_browser.py -v`:
   optional Chromium rendering/interactions against a localhost synthetic bridge.
   Do not retry browser execution where the environment has already denied it.

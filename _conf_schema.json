@@ -3,7 +3,7 @@
     "description": "启用插件",
     "type": "bool",
     "default": false,
-    "hint": "检查 QQ 号、群白名单和密钥后再开启。仅影响本插件接收与回复。"
+    "hint": "核对接收范围后开启。"
   },
   "platform_id": {
     "description": "平台实例 ID",
@@ -27,10 +27,82 @@
     "invisible": true
   },
   "sender_id": {
-    "description": "我的 QQ",
+    "description": "管理者 QQ",
     "type": "string",
     "default": "",
-    "hint": "sender_id：你的 QQ 号。私聊和“仅本人 @”模式只接收此账号。"
+    "hint": "主要管理账号及数据库绑定身份；新增用户请填写私聊 QQ。"
+  },
+  "private_sender_ids": {
+    "description": "私聊 QQ",
+    "type": "list",
+    "default": [],
+    "hint": "允许私聊的 QQ；新格式下留空不接收，管理者也需列入。"
+  },
+  "group_rules": {
+    "description": "群回复规则",
+    "type": "template_list",
+    "default": [],
+    "hint": "每群添加一条；默认仅 @，同一群号不可重复。",
+    "templates": {
+      "group": {
+        "name": "群回复规则",
+        "display_item": "group_id",
+        "items": {
+          "group_id": {
+            "description": "群号",
+            "type": "string",
+            "default": "",
+            "hint": "每个群号只添加一次。"
+          },
+          "mode": {
+            "description": "回复模式",
+            "type": "string",
+            "default": "at",
+            "options": [
+              "at",
+              "selected",
+              "all"
+            ],
+            "labels": [
+              "被 @ 时回复",
+              "指定成员消息",
+              "所有成员消息"
+            ],
+            "hint": "选择本群的接收条件。"
+          },
+          "at_sender_scope": {
+            "description": "@ 成员范围",
+            "type": "string",
+            "default": "selected",
+            "options": [
+              "all",
+              "selected"
+            ],
+            "labels": [
+              "所有成员",
+              "指定成员"
+            ],
+            "condition": {
+              "mode": "at"
+            },
+            "hint": "默认仅指定成员；先填写成员 QQ。"
+          },
+          "sender_ids": {
+            "description": "指定成员 QQ",
+            "type": "list",
+            "default": [],
+            "hint": "指定成员模式及指定成员 @ 时生效；其他模式忽略。"
+          }
+        }
+      }
+    }
+  },
+  "access_rules_version": {
+    "description": "接收规则版本",
+    "type": "int",
+    "default": 0,
+    "invisible": true,
+    "hint": "内部升级标记；成功迁移后为 1，不要手动修改。"
   },
   "mcp_token": {
     "description": "内部 MCP 认证",
@@ -65,7 +137,8 @@
     "description": "群白名单",
     "type": "list",
     "default": [],
-    "hint": "group_ids：逐项填写允许的 QQ 群号；留空不处理群聊。"
+    "hint": "旧群白名单，仅用于升级迁移。",
+    "invisible": true
   },
   "group_trigger_mode": {
     "description": "群回复模式",
@@ -75,11 +148,12 @@
       "owner_at",
       "all_messages"
     ],
-    "hint": "owner_at：仅本人 @。all_messages：群内任何非机器人账号的普通文字，无需 @；引用和媒体不支持。",
+    "hint": "旧群模式，仅用于升级迁移；首次升级按原成员范围收紧为 @ 触发。",
     "labels": [
       "仅本人 @ 时回复",
-      "群内所有普通文字"
-    ]
+      "白名单群所有支持消息"
+    ],
+    "invisible": true
   },
   "tunnel_id": {
     "type": "string",
@@ -132,5 +206,123 @@
     "hint": "在插件连接管理页面配置；默认关闭。",
     "invisible": true,
     "secret": true
+  },
+  "callback_backend": {
+    "description": "旧后端已停用",
+    "type": "string",
+    "default": "aiohttp",
+    "hint": "仅保留旧配置键；运行固定标准 aiohttp。",
+    "invisible": true
+  },
+  "callback_dns": {
+    "description": "回调 DNS",
+    "type": "string",
+    "default": "system",
+    "options": [
+      "system",
+      "google"
+    ],
+    "labels": [
+      "系统DNS",
+      "Google加密DNS（经代理）"
+    ],
+    "hint": "旧版迁移保留，统一 DNS 选择后不再使用。",
+    "invisible": true
+  },
+  "attachment_private_http": {
+    "description": "私聊文件 HTTP",
+    "type": "bool",
+    "default": false,
+    "invisible": true,
+    "hint": "默认关闭。仅允许当前绑定机器人API即时返回的私聊文件公网HTTP:80；明文链接和内容可能被查看或篡改。详细页面手动开启。"
+  },
+  "chat_context_messages": {
+    "description": "上下文已停用",
+    "type": "int",
+    "default": 0,
+    "hint": "仅保留旧配置键以兼容升级；此值不再生效。QQ 读取仅返回当前消息，不附带历史上下文。",
+    "invisible": true
+  },
+  "attachment_dns": {
+    "description": "附件 DNS",
+    "type": "string",
+    "default": "system",
+    "options": [
+      "system",
+      "google"
+    ],
+    "labels": [
+      "系统DNS",
+      "Google加密DNS（经代理）"
+    ],
+    "hint": "旧版迁移保留，统一 DNS 选择后不再使用。",
+    "invisible": true
+  },
+  "network_dns": {
+    "type": "string",
+    "description": "统一 DNS",
+    "hint": "回调与附件共用；旧配置不同先保留，需在连接页选择。",
+    "default": "legacy",
+    "options": [
+      "legacy",
+      "system",
+      "google"
+    ],
+    "invisible": true,
+    "labels": [
+      "保留旧值（冲突时需选择）",
+      "系统 DNS",
+      "Google 加密 DNS（经代理）"
+    ]
+  },
+  "remote_diagnostics_enabled": {
+    "type": "bool",
+    "description": "远程诊断",
+    "hint": "默认关闭。仅管理员主人私聊可用版本、工具、状态只读指令；无远程命令执行。",
+    "default": false
+  },
+  "group_file_cache_enabled": {
+    "type": "bool",
+    "description": "群文件缓存",
+    "hint": "仅@群先缓存允许成员文件，随后同群同成员明确请求才关联；20MB，10分钟有效。关闭即撤销候选。",
+    "default": true
+  },
+  "experimental_unread_reminders": {
+    "type": "bool",
+    "description": "未读提醒试验",
+    "hint": "默认关闭。仅启用后新消息：ACK后120秒仍未读，最多同ID提醒两次。可能被平台去重，不保证唤醒。",
+    "default": false
+  },
+  "sender_routes": {
+    "description": "分号路由",
+    "type": "template_list",
+    "default": [],
+    "hint": "试验功能：发送者 QQ 对应独立 Tunnel ID 和本地端口；仍须满足私聊/群规则。留空沿用单路；多路未映射号码不接收。共用连接页的 Tunnel 密钥。",
+    "templates": {
+      "route": {
+        "name": "账号通路",
+        "display_item": "sender_id",
+        "items": {
+          "sender_id": {
+            "description": "发送者 QQ",
+            "type": "string",
+            "default": "",
+            "hint": "发消息的小号 QQ，不是机器人 QQ；每个号码只能添加一次。"
+          },
+          "tunnel_id": {
+            "description": "Tunnel ID",
+            "type": "string",
+            "default": "",
+            "hint": "该账号对应的独立 Tunnel ID，共用全局运行密钥。"
+          },
+          "listen_port": {
+            "description": "本地端口",
+            "type": "int",
+            "default": 8770,
+            "hint": "1024–65535，所有路由端口不可重复，不可被其他服务占用。"
+          }
+        }
+      }
+    }
   }
 }

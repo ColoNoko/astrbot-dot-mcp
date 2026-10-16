@@ -308,8 +308,9 @@ class CallbackProxySocketTests(unittest.IsolatedAsyncioTestCase):
         self.addAsyncCleanup(transport.close)
         loop = asyncio.get_running_loop()
         with patch.object(loop, "getaddrinfo", AsyncMock(return_value=[dns_entry()])) as dns:
-            with self.assertRaisesRegex(EventError, "^callback_network_failed$"):
+            with self.assertRaisesRegex(EventError, "^callback_proxy_failed$") as raised:
                 await transport.post(URL, b"{}", {})
+            self.assertEqual(raised.exception.http_status, 407)
         dns.assert_awaited_once()
         self.assertEqual(len(proxy.connect_requests), 1)
         connect = proxy.connect_requests[0]
