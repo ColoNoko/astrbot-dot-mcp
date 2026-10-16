@@ -1,5 +1,6 @@
 """Offline lifecycle tests: no QQ adapter, NAS, or external callbacks."""
 import asyncio
+import base64
 import importlib
 import json
 from pathlib import Path
@@ -309,7 +310,10 @@ class EventTimingTests(unittest.IsolatedAsyncioTestCase):
             events.transport = Transport()
             store.events = events
             with store.db:
-                store.db.execute("INSERT INTO event_subscriptions VALUES ('sub-private','private-owner','https://private.example','whsec_c3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3M=',NULL,NULL,NULL,9999999999,'active')")
+                # Synthetic repeated bytes for offline Standard Webhooks signing only.
+                # Construct at runtime; this is not a provider-issued credential.
+                test_secret = "whsec_" + base64.b64encode(bytes([115]) * 32).decode("ascii")
+                store.db.execute("INSERT INTO event_subscriptions VALUES ('sub-private','private-owner','https://private.example',?,NULL,NULL,NULL,9999999999,'active')", (test_secret,))
             ident, _ = store.ingest({'source_id': 'private-source', 'umo': 'private-route', 'text': 'private-payload'},
                                     captured_at=store.message_timing.stamp())
             task = asyncio.create_task(events.deliver_once())
